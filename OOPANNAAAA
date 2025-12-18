@@ -1,13 +1,11 @@
--- FE Simple AimLock Script | Released Nov 2021 | Working
-
 local Workspace = game:GetService("Workspace")
 local RunService = game:GetService("RunService")
 local UIS = game:GetService("UserInputService")
 local Players = game:GetService("Players")
 local LocalPlayer = Players.LocalPlayer
-local MyCharacter = LocalPlayer.Character
-local MyRoot = MyCharacter:FindFirstChild("HumanoidRootPart")
-local MyHumanoid = MyCharacter:FindFirstChild("Humanoid")
+local MyCharacter = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local MyRoot = MyCharacter:WaitForChild("HumanoidRootPart")
+local MyHumanoid = MyCharacter:WaitForChild("Humanoid")
 local Mouse = LocalPlayer:GetMouse()
 local Camera = Workspace.CurrentCamera
 local MyTeamColor = LocalPlayer.TeamColor
@@ -15,7 +13,8 @@ local MyTeamColor = LocalPlayer.TeamColor
 local HoldingM2 = false
 local Active = false
 local Lock = false
-local Epitaph = 0.187 -- Note: The bigger the number, the more prediction
+local CurrentTarget = nil
+local Epitaph = 0.187
 local HeadOffset = Vector3.new(0, 0.1, 0)
 
 -- Settings
@@ -30,28 +29,163 @@ _G.CircleFilled = false
 _G.CircleVisible = true
 _G.CircleThickness = 1
 
--- FOV Circle
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-FOVCircle.Radius = _G.CircleRadius
-FOVCircle.Filled = _G.CircleFilled
-FOVCircle.Color = _G.CircleColor
-FOVCircle.Visible = _G.CircleVisible
-FOVCircle.Transparency = _G.CircleTransparency
-FOVCircle.NumSides = _G.CircleSides
-FOVCircle.Thickness = _G.CircleThickness
+-- FOV Circle for locking indication
+local LockCircle = Drawing.new("Circle")
+LockCircle.Visible = false
+LockCircle.Radius = 20
+LockCircle.Filled = false
+LockCircle.Color = Color3.fromRGB(255, 0, 130)
+LockCircle.Transparency = 0.5
+LockCircle.NumSides = 32
+LockCircle.Thickness = 2
 
--- Cursor control
-local function CursorLock()
-    UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+-- GUI Creation
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "LockIndicator"
+ScreenGui.Parent = game.CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Name = "MainFrame"
+MainFrame.Size = UDim2.new(0, 200, 0, 100)
+MainFrame.Position = UDim2.new(0.5, -100, 0.8, 0)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MainFrame.BackgroundTransparency = 0.5
+MainFrame.BorderSizePixel = 0
+MainFrame.Active = true
+MainFrame.Draggable = true
+MainFrame.Parent = ScreenGui
+
+local TitleLabel = Instance.new("TextLabel")
+TitleLabel.Name = "TitleLabel"
+TitleLabel.Size = UDim2.new(1, 0, 0, 20)
+TitleLabel.Position = UDim2.new(0, 0, 0, 0)
+TitleLabel.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+TitleLabel.Text = "Made By Flazed"
+TitleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+TitleLabel.Font = Enum.Font.GothamBold
+TitleLabel.TextSize = 12
+TitleLabel.Parent = MainFrame
+
+local SizeLabel = Instance.new("TextLabel")
+SizeLabel.Name = "SizeLabel"
+SizeLabel.Size = UDim2.new(1, 0, 0, 20)
+SizeLabel.Position = UDim2.new(0, 0, 0, 25)
+SizeLabel.BackgroundTransparency = 1
+SizeLabel.Text = "Circle Size: 20"
+SizeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+SizeLabel.Font = Enum.Font.Gotham
+SizeLabel.TextSize = 12
+SizeLabel.Parent = MainFrame
+
+local StatusLabel = Instance.new("TextLabel")
+StatusLabel.Name = "StatusLabel"
+StatusLabel.Size = UDim2.new(1, 0, 0, 20)
+StatusLabel.Position = UDim2.new(0, 0, 0, 80)
+StatusLabel.BackgroundTransparency = 1
+StatusLabel.Text = "Status: OFF"
+StatusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+StatusLabel.Font = Enum.Font.GothamBold
+StatusLabel.TextSize = 12
+StatusLabel.Parent = MainFrame
+
+local MinusButton = Instance.new("TextButton")
+MinusButton.Name = "MinusButton"
+MinusButton.Size = UDim2.new(0, 40, 0, 25)
+MinusButton.Position = UDim2.new(0, 10, 0, 50)
+MinusButton.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+MinusButton.Text = "-"
+MinusButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+MinusButton.Font = Enum.Font.GothamBold
+MinusButton.TextSize = 14
+MinusButton.Parent = MainFrame
+
+local PlusButton = Instance.new("TextButton")
+PlusButton.Name = "PlusButton"
+PlusButton.Size = UDim2.new(0, 40, 0, 25)
+PlusButton.Position = UDim2.new(0, 150, 0, 50)
+PlusButton.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
+PlusButton.Text = "+"
+PlusButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+PlusButton.Font = Enum.Font.GothamBold
+PlusButton.TextSize = 14
+PlusButton.Parent = MainFrame
+
+local SizeSlider = Instance.new("Frame")
+SizeSlider.Name = "SizeSlider"
+SizeSlider.Size = UDim2.new(0, 80, 0, 10)
+SizeSlider.Position = UDim2.new(0, 60, 0, 55)
+SizeSlider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+SizeSlider.BorderSizePixel = 0
+SizeSlider.Parent = MainFrame
+
+local SizeFill = Instance.new("Frame")
+SizeFill.Name = "SizeFill"
+SizeFill.Size = UDim2.new(0.2, 0, 1, 0) -- Starts at 20% (size 20)
+SizeFill.Position = UDim2.new(0, 0, 0, 0)
+SizeFill.BackgroundColor3 = Color3.fromRGB(255, 0, 130)
+SizeFill.BorderSizePixel = 0
+SizeFill.Parent = SizeSlider
+
+-- Function to resize circle
+local function UpdateCircleSize(newSize)
+    if newSize < 1 then newSize = 1 end
+    if newSize > 100 then newSize = 100 end
+    
+    LockCircle.Radius = newSize
+    SizeLabel.Text = "Circle Size: " .. tostring(math.floor(newSize))
+    
+    -- Update slider
+    local percentage = (newSize - 1) / 99
+    SizeFill.Size = UDim2.new(percentage, 0, 1, 0)
 end
 
-local function UnLockCursor()
-    HoldingM2 = false
-    Active = false
-    Lock = false
-    UIS.MouseBehavior = Enum.MouseBehavior.Default
+-- Update status label
+local function UpdateStatus()
+    if Lock and CurrentTarget then
+        StatusLabel.Text = "Status: LOCKED"
+        StatusLabel.TextColor3 = Color3.fromRGB(0, 255, 0)
+    else
+        StatusLabel.Text = "Status: OFF"
+        StatusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
+    end
 end
+
+-- Button events
+MinusButton.MouseButton1Click:Connect(function()
+    UpdateCircleSize(LockCircle.Radius - 1)
+end)
+
+PlusButton.MouseButton1Click:Connect(function()
+    UpdateCircleSize(LockCircle.Radius + 1)
+end)
+
+-- Slider dragging
+local dragging = false
+SizeFill.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+    end
+end)
+
+SizeFill.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local mousePos = UIS:GetMouseLocation()
+        local sliderPos = SizeSlider.AbsolutePosition
+        local sliderSize = SizeSlider.AbsoluteSize
+        
+        local relativeX = math.clamp(mousePos.X - sliderPos.X, 0, sliderSize.X)
+        local percentage = relativeX / sliderSize.X
+        
+        local newSize = math.floor(1 + (percentage * 99))
+        UpdateCircleSize(newSize)
+    end
+end)
 
 -- Find nearest player within FOV
 local function FindNearestPlayer()
@@ -70,7 +204,7 @@ local function FindNearestPlayer()
 
             if Visible then
                 local RealMag = (Vector2.new(Mouse.X, Mouse.Y) - Vector2.new(CharacterRoot.X, CharacterRoot.Y)).Magnitude
-                if RealMag < dist and RealMag < FOVCircle.Radius then
+                if RealMag < dist then
                     dist = RealMag
                     Target = TheirCharacter
                 end
@@ -78,40 +212,120 @@ local function FindNearestPlayer()
         end
     end
 
-    return Target
+    return Target, dist
 end
 
--- Start aimlock when right mouse button is pressed
-UIS.InputBegan:Connect(function(Input)
-    if Input.UserInputType == Enum.UserInputType.MouseButton2 then
-        HoldingM2 = true
-        Active = true
-        Lock = true
+-- Update lock circle position
+local function UpdateLockCircle()
+    if Lock and CurrentTarget and CurrentTarget:FindFirstChild("HumanoidRootPart") then
+        local pos, onScreen = Camera:WorldToViewportPoint(CurrentTarget.HumanoidRootPart.Position)
+        if onScreen then
+            LockCircle.Position = Vector2.new(pos.X, pos.Y)
+            LockCircle.Visible = true
+        else
+            LockCircle.Visible = false
+        end
+    else
+        LockCircle.Visible = false
+    end
+end
 
-        if Active then
-            local The_Enemy = FindNearestPlayer()
-            while HoldingM2 do
-                task.wait(0.000001)
-                if Lock and The_Enemy ~= nil then
-                    local Future = The_Enemy.HumanoidRootPart.CFrame + (The_Enemy.HumanoidRootPart.Velocity * Epitaph + HeadOffset)
-                    Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, Future.Position)
-                    CursorLock()
+-- Cursor control
+local function CursorLock()
+    UIS.MouseBehavior = Enum.MouseBehavior.LockCenter
+end
+
+local function UnLockCursor()
+    HoldingM2 = false
+    Active = false
+    Lock = false
+    CurrentTarget = nil
+    LockCircle.Visible = false
+    UpdateStatus()
+    UIS.MouseBehavior = Enum.MouseBehavior.Default
+end
+
+-- Toggle lock function
+local function ToggleLock()
+    if Lock then
+        -- If already locked, unlock
+        UnLockCursor()
+    else
+        -- If not locked, find target and lock
+        local target = FindNearestPlayer()
+        if target then
+            CurrentTarget = target
+            Lock = true
+            UpdateStatus()
+            
+            -- Start aimlock loop
+            task.spawn(function()
+                while Lock and CurrentTarget do
+                    task.wait()
+                    if CurrentTarget and CurrentTarget:FindFirstChild("HumanoidRootPart") then
+                        local Future = CurrentTarget.HumanoidRootPart.CFrame + (CurrentTarget.HumanoidRootPart.Velocity * Epitaph + HeadOffset)
+                        Camera.CFrame = CFrame.lookAt(Camera.CFrame.Position, Future.Position)
+                        CursorLock()
+                    else
+                        -- Target died or left
+                        UnLockCursor()
+                        break
+                    end
                 end
-            end
+            end)
+        else
+            -- No target found
+            game.StarterGui:SetCore("SendNotification", {
+                Title = "No Target",
+                Text = "No valid target found",
+                Duration = 2,
+            })
+        end
+    end
+end
+
+-- Render loop for updating circle
+RunService.RenderStepped:Connect(function()
+    UpdateLockCircle()
+end)
+
+-- F key toggle
+UIS.InputBegan:Connect(function(Input, Processed)
+    if not Processed then
+        if Input.KeyCode == Enum.KeyCode.F then
+            ToggleLock()
         end
     end
 end)
 
--- Stop aimlock when right mouse button is released
-UIS.InputEnded:Connect(function(Input)
-    if Input.UserInputType == Enum.UserInputType.MouseButton2 then
+-- Character death/removal handling
+Players.PlayerRemoving:Connect(function(player)
+    if CurrentTarget and player.Character == CurrentTarget then
         UnLockCursor()
     end
 end)
 
+-- Handle when target character dies
+local function MonitorTargetDeath()
+    while true do
+        task.wait(0.5)
+        if CurrentTarget and CurrentTarget:FindFirstChild("Humanoid") then
+            if CurrentTarget.Humanoid.Health <= 0 then
+                UnLockCursor()
+            end
+        end
+    end
+end
+
+task.spawn(MonitorTargetDeath)
+
+-- Initialize circle size
+UpdateCircleSize(20)
+UpdateStatus()
+
 -- Notification
 game.StarterGui:SetCore("SendNotification", {
     Title = "Working.",
-    Text = "Flazed Lock, Loaded",
+    Text = "Flazed Lock Loaded - Press F to toggle",
     Duration = 4,
 })
